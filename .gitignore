@@ -7,3 +7,4 @@ dist/
 .investigation/
 coverage/
 .vite/
+.vercel/

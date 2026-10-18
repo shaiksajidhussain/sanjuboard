@@ -66,7 +66,9 @@ The container listens on port 8787. Pass provider keys with the environment vari
 
 ## Deploy on Vercel
 
-One Vercel project serves the board and the assistant. Import `shaiksajidhussain/sanjuboard` with root directory `./` and preset Other. Leave the build fields empty so `vercel.json` is used: it builds the client and routes `/api` to the assistant.
+One Vercel project serves the board and the assistant. Import `shaiksajidhussain/sanjuboard` with root directory `./` and preset Other.
+
+In Build and Output Settings, set the build command to `npm run build` and clear the output directory. A filled output directory publishes only the page, and `/api` then returns 404.
 
 Add these environment variables in the Vercel project. Do not commit the key.
 
