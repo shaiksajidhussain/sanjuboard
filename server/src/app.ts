@@ -21,6 +21,7 @@ export interface DiagramAssistant {
 type CreateAppOptions = {
   assistant?: DiagramAssistant;
   staticDir?: string;
+  serveStatic?: boolean;
 };
 
 export function createApp(options: CreateAppOptions = {}) {
@@ -83,7 +84,10 @@ export function createApp(options: CreateAppOptions = {}) {
     });
   });
 
-  if (options.staticDir || process.env.NODE_ENV === "production") {
+  const serveStatic =
+    options.serveStatic ??
+    (Boolean(options.staticDir) || (process.env.NODE_ENV === "production" && !process.env.VERCEL));
+  if (serveStatic) {
     const staticDir =
       options.staticDir ??
       path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../client/dist");

@@ -1,5 +1,6 @@
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
+import { toApiUrl } from "../../api/[...path]";
 import { createApp, type DiagramAssistant } from "./app";
 
 const servers: Array<{ close: () => void }> = [];
@@ -82,5 +83,13 @@ describe("AI endpoint", () => {
     const body = await response.json();
     expect(body.error).toMatch(/upstream timeout/);
     expect(body.error).toMatch(/not changed/i);
+  });
+});
+
+describe("Vercel API paths", () => {
+  it("keeps assistant routes under /api", () => {
+    expect(toApiUrl("/api/health")).toBe("/api/health");
+    expect(toApiUrl("/ai/propose?x=1")).toBe("/api/ai/propose?x=1");
+    expect(toApiUrl(undefined)).toBe("/api/");
   });
 });

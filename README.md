@@ -64,6 +64,20 @@ docker compose up --build
 
 The container listens on port 8787. Pass provider keys with the environment variables above.
 
+## Deploy on Vercel
+
+One Vercel project serves the board and the assistant. Import `shaiksajidhussain/sanjuboard` with root directory `./` and preset Other. Leave the build fields empty so `vercel.json` is used: it builds the client and routes `/api` to the assistant.
+
+Add these environment variables in the Vercel project. Do not commit the key.
+
+```
+AI_PROVIDER=openai
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4.1-nano
+```
+
+After deploy, open the Vercel URL. The page and `/api/health` come from the same site.
+
 ## How an edit works
 
 1. The editor summarizes the canvas to ids, types, geometry, labels, and arrow endpoints. Image bytes and app state are not sent.

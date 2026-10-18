@@ -14,7 +14,7 @@
     "build": "npm run build -w client",
     "start": "npm run start -w server",
     "test": "vitest run",
-    "typecheck": "tsc -p client/tsconfig.json --noEmit && tsc -p server/tsconfig.json --noEmit"
+    "typecheck": "tsc -p client/tsconfig.json --noEmit && tsc -p server/tsconfig.json --noEmit && tsc -p api/tsconfig.json --noEmit"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
