@@ -1,9 +1,12 @@
 export { analyzeDiagram, type DiagramIssue } from "./analyze";
 export {
+  applyIfUnchanged,
   commitScene,
   conversionClosure,
   mutatingChanges,
+  restoreSnapshot,
   type Mutation,
+  type SnapshotEntry,
   restoreScene,
   sceneSignature,
   validateProposal,

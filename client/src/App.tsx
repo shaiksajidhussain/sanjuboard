@@ -2,10 +2,12 @@ import { Excalidraw, CaptureUpdateAction, exportToBlob } from "@excalidraw/excal
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   analyzeDiagram,
+  applyIfUnchanged,
   mutatingChanges,
   requestProposal,
+  restoreSnapshot,
+  sceneSignature,
   summarizeCanvas,
-  validateProposal,
   type CanvasElement,
   type Proposal,
   type SceneNode,
@@ -49,6 +51,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [proposal, setProposal] = useState<Proposal | null>(null);
+  const [proposalBase, setProposalBase] = useState("");
   const [provider, setProvider] = useState("…");
   const [saveState, setSaveState] = useState<SaveState>(initialProject ? "Saved" : "Not saved yet");
   const [sceneNodes, setSceneNodes] = useState<SceneNode[]>(() =>
@@ -147,11 +150,13 @@ export default function App() {
       return;
     }
     setProposal(result.proposal);
+    setProposalBase(sceneSignature(scene));
     setProvider(result.provider);
   }
 
   function reject() {
     setProposal(null);
+    setProposalBase("");
     setError(null);
   }
 
@@ -159,14 +164,16 @@ export default function App() {
     const api = apiRef.current;
     if (!api || !proposal) return;
     const current = [...api.getSceneElements()];
-    const checked = validateProposal(summarizeCanvas(current), { operations: proposal.operations });
+    const checked = applyIfUnchanged(summarizeCanvas(current), proposal, proposalBase);
     if (!checked.ok) {
       setError(checked.error);
       setProposal(null);
+      setProposalBase("");
       return;
     }
     if (mutatingChanges(checked.proposal.changes).length === 0) {
       setProposal(null);
+      setProposalBase("");
       return;
     }
     try {
@@ -188,6 +195,7 @@ export default function App() {
       setHistory(nextHistory);
       saveHistory(nextHistory);
       setProposal(null);
+      setProposalBase("");
       setError(null);
       setTab("history");
       rememberElements(api.getSceneElements());
@@ -199,16 +207,15 @@ export default function App() {
 
   function revert(id: string, force = false) {
     const api = apiRef.current;
-    const entry = history.find((item) => item.id === id);
-    if (!api || !entry) return;
-    if (!force && elementSignature(api.getSceneElements()) !== entry.afterSignature) return;
+    if (!api) return;
+    const restored = restoreSnapshot(history, id, elementSignature(api.getSceneElements()), force);
+    if (!restored.ok) return;
     api.updateScene({
-      elements: structuredClone(entry.beforeElements),
+      elements: structuredClone(restored.entry.beforeElements),
       captureUpdate: CaptureUpdateAction.IMMEDIATELY,
     });
-    const nextHistory = history.filter((item) => item.id !== id);
-    setHistory(nextHistory);
-    saveHistory(nextHistory);
+    setHistory(restored.entries);
+    saveHistory(restored.entries);
     rememberElements(api.getSceneElements());
   }
 

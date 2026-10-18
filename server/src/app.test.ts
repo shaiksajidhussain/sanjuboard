@@ -86,6 +86,57 @@ describe("AI endpoint", () => {
   });
 });
 
+describe("T10 server validation", () => {
+  it("rejects a request that is missing an instruction", async () => {
+    const base = await listen();
+    const response = await fetch(`${base}/api/ai/propose`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scene: [] }),
+    });
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toMatch(/not changed|invalid|required/i);
+  });
+
+  it("drops file bytes before the model sees the scene and does not echo a credential", async () => {
+    const marker = "test-credential-marker";
+    let seen: unknown;
+    const base = await listen({
+      name: "recorder",
+      async propose(input) {
+        seen = input;
+        return { operations: [] };
+      },
+    });
+    const response = await fetch(`${base}/api/ai/propose`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", authorization: `Bearer ${marker}` },
+      body: JSON.stringify({
+        instruction: "Add a label",
+        scene: [
+          {
+            id: "api",
+            type: "rectangle",
+            x: 1,
+            y: 2,
+            width: 10,
+            height: 10,
+            text: "API",
+            dataURL: "data:image/png;base64,AAAA",
+            apiKey: marker,
+          },
+        ],
+      }),
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(JSON.stringify(seen)).not.toMatch(/dataURL|apiKey|AAAA/);
+    expect(JSON.stringify(body)).not.toContain(marker);
+    expect(JSON.stringify(await (await fetch(`${base}/api/health`)).json())).not.toContain(marker);
+  });
+});
+
 describe("Vercel API paths", () => {
   it("keeps assistant routes under /api", () => {
     expect(toApiUrl("/api/health")).toBe("/api/health");

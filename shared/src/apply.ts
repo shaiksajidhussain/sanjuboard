@@ -263,6 +263,46 @@ export function restoreScene(before: readonly SceneNode[]): SceneNode[] {
   return before.map((node) => ({ ...node, groupIds: [...node.groupIds] }));
 }
 
+/** Apply a proposal only when the canvas still matches the scene that was reviewed. */
+export function applyIfUnchanged(
+  current: readonly SceneNode[],
+  proposal: { operations: readonly DiagramOperation[] },
+  baseSignature: string,
+): { ok: true; proposal: Proposal } | { ok: false; error: string } {
+  if (sceneSignature(current) !== baseSignature) {
+    return {
+      ok: false,
+      error: "The canvas changed after this proposal. Nothing was changed.",
+    };
+  }
+  return validateProposal(current, { operations: proposal.operations });
+}
+
+export type SnapshotEntry = {
+  id: string;
+  afterSignature: string;
+  beforeElements: unknown;
+};
+
+/** Restore one accepted edit. A later manual edit blocks restoration unless force is set. */
+export function restoreSnapshot<T extends SnapshotEntry>(
+  entries: readonly T[],
+  id: string,
+  currentSignature: string,
+  force = false,
+): { ok: true; entry: T; entries: T[] } | { ok: false; error: string } {
+  const entry = entries.find((item) => item.id === id);
+  if (!entry) return { ok: false, error: "That snapshot is not in the history." };
+  if (!force && currentSignature !== entry.afterSignature) {
+    return { ok: false, error: "The canvas changed after this edit. Nothing was restored." };
+  }
+  return {
+    ok: true,
+    entry: structuredClone(entry),
+    entries: entries.filter((item) => item.id !== id),
+  };
+}
+
 export function commitScene(
   current: readonly SceneNode[],
   proposal: Proposal,
@@ -275,7 +315,7 @@ export function sceneSignature(scene: readonly SceneNode[]): string {
   return scene
     .map(
       (node) =>
-        `${node.id}:${node.type}:${Math.round(node.x)}:${Math.round(node.y)}:${node.text ?? ""}:${node.fromId ?? ""}:${node.toId ?? ""}`,
+        `${node.id}:${node.type}:${Math.round(node.x)}:${Math.round(node.y)}:${Math.round(node.width)}:${Math.round(node.height)}:${node.text ?? ""}:${node.backgroundColor ?? ""}:${node.strokeColor ?? ""}:${node.fromId ?? ""}:${node.toId ?? ""}`,
     )
     .sort()
     .join("|");
