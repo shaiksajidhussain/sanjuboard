@@ -20,6 +20,7 @@ export {
   type AssistantResult,
 } from "./assistant";
 export { localAssistant, planLocally, type AssistantInput } from "./planner";
+export { blueprintForPrompt, blueprintOperations } from "./blueprints";
 export {
   isModeledElementType,
   modelResponseSchema,

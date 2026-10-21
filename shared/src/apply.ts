@@ -80,6 +80,101 @@ function laneOf(text: string): DiagramLane {
   return "other";
 }
 
+function overlaps(left: SceneNode, right: SceneNode): boolean {
+  const gap = 12;
+  return (
+    left.x < right.x + right.width + gap &&
+    left.x + left.width + gap > right.x &&
+    left.y < right.y + right.height + gap &&
+    left.y + left.height + gap > right.y
+  );
+}
+
+function isPipeline(nodes: readonly SceneNode[]): boolean {
+  const text = nodes.map((node) => node.text ?? "").join("\n").toLowerCase();
+  const marks = ["github", "jenkins", "docker", "pipeline", "staging", "deploy", "nginx", "ci/cd"];
+  return marks.filter((mark) => text.includes(mark)).length >= 2;
+}
+
+function flowRank(text: string): number {
+  const label = text.toLowerCase();
+  const steps: Array<[RegExp, number]> = [
+    [/developer|\bcommit\b|source control/, 10],
+    [/github|repository|\bgit\b/, 20],
+    [/jenkins|ci\/cd/, 30],
+    [/quality/, 40],
+    [/test/, 45],
+    [/docker|image builder|\bbuild\b/, 50],
+    [/registry/, 60],
+    [/staging/, 70],
+    [/approval|approved/, 80],
+    [/production|\bvps\b/, 90],
+    [/nginx|reverse proxy/, 100],
+    [/frontend|\breact\b/, 110],
+    [/node\.?js|api container/, 120],
+    [/postgres|database|\bredis\b|\bcache\b/, 130],
+    [/monitor|alert/, 140],
+  ];
+  return steps.find(([pattern]) => pattern.test(label))?.[1] ?? 1000;
+}
+
+function shapeForFlow(node: SceneNode): void {
+  if (node.type === "text") return;
+  const label = (node.text ?? "").toLowerCase();
+  if (/approval|approved\?|pass\?|fail\?|tests?\?|decision/.test(label)) {
+    node.type = "diamond";
+    node.backgroundColor ??= "#fff3bf";
+  } else if (/postgres|redis|database|\bcache\b|registry/.test(label)) {
+    node.type = "ellipse";
+    node.backgroundColor ??= "#d3f9d8";
+  } else {
+    node.backgroundColor ??= "#e5dbff";
+  }
+  const fitted = fitBox(node.type, node.text, 210, 76);
+  node.width = fitted.width;
+  node.height = fitted.height;
+}
+
+function placeRows(nodes: readonly SceneNode[], perRow: number): { right: number; bottom: number } {
+  const rows: SceneNode[][] = [];
+  for (let index = 0; index < nodes.length; index += perRow) rows.push(nodes.slice(index, index + perRow));
+  const gapX = 72;
+  const gapY = 48;
+  const top = 96;
+  let bottom = top;
+  let right = 48;
+  for (const [rowIndex, row] of rows.entries()) {
+    const rowHeight = Math.max(...row.map((node) => node.height));
+    const y = top + rows.slice(0, rowIndex).reduce((sum, previous) => {
+      return sum + Math.max(...previous.map((node) => node.height)) + gapY;
+    }, 0);
+    let x = 48;
+    for (const node of row) {
+      node.x = x;
+      node.y = y + (rowHeight - node.height) / 2;
+      x += node.width + gapX;
+    }
+    right = Math.max(right, x - gapX);
+    bottom = y + rowHeight;
+  }
+  return { right, bottom };
+}
+
+function paintArrows(scene: readonly SceneNode[], placed: ReadonlySet<SceneNode>): void {
+  for (const arrow of scene) {
+    if (arrow.type !== "arrow") continue;
+    const from = scene.find((node) => node.id === arrow.fromId);
+    const to = scene.find((node) => node.id === arrow.toId);
+    if (!from || !to || (!placed.has(from) && !placed.has(to))) continue;
+    const caption = `${arrow.text ?? ""} ${to.text ?? ""}`.toLowerCase();
+    if (/fail|reject|rollback|alert|stop|error/.test(caption)) arrow.strokeColor = "#e03131";
+    arrow.x = from.x + from.width;
+    arrow.y = from.y + from.height / 2;
+    arrow.width = Math.max(Math.abs(to.x - arrow.x), 48);
+    arrow.height = Math.max(Math.abs(to.y + to.height / 2 - arrow.y), 8);
+  }
+}
+
 /** Put a newly generated system into columns so fitted labels cannot sit on top of each other. */
 function separateSystem(scene: SceneNode[], touched: ReadonlySet<string>): void {
   const fresh = scene.filter(
@@ -102,6 +197,33 @@ function separateSystem(scene: SceneNode[], touched: ReadonlySet<string>): void 
 
   const title = fresh.find((node) => laneOf(node.text ?? "") === "title" && scene.includes(node));
   const legend = fresh.find((node) => laneOf(node.text ?? "") === "legend" && scene.includes(node));
+  const components = labeled.filter((node) => scene.includes(node));
+  const crowded = components.some((left, index) =>
+    components.slice(index + 1).some((right) => overlaps(left, right)),
+  );
+  if (!crowded) {
+    const placed = new Set<SceneNode>([
+      ...components,
+      ...(title && scene.includes(title) ? [title] : []),
+      ...(legend && scene.includes(legend) ? [legend] : []),
+    ]);
+    shiftPastExisting(scene, placed);
+    paintArrows(scene, placed);
+    return;
+  }
+  if (isPipeline(components)) {
+    const ordered = components
+      .map((node, index) => ({ node, index }))
+      .sort((left, right) => flowRank(left.node.text ?? "") - flowRank(right.node.text ?? "") || left.index - right.index)
+      .map((entry) => entry.node);
+    for (const node of ordered) shapeForFlow(node);
+    const bounds = placeRows(ordered, 4);
+    placeCaption(title, legend, scene, bounds.right, bounds.bottom);
+    const placed = new Set<SceneNode>([...ordered, ...(title && scene.includes(title) ? [title] : []), ...(legend && scene.includes(legend) ? [legend] : [])]);
+    shiftPastExisting(scene, placed);
+    paintArrows(scene, placed);
+    return;
+  }
   const columns: SceneNode[][] = [[], [], [], [], []];
   const order = ["client", "gateway", "service", "data", "external"] as const;
   for (const node of labeled) {
@@ -137,8 +259,21 @@ function separateSystem(scene: SceneNode[], touched: ReadonlySet<string>): void 
     diagramRight = x - gapX;
   });
 
+  placeCaption(title, legend, scene, diagramRight, top + maxHeight);
+  const placed = new Set<SceneNode>([...packed.flat(), ...(title && scene.includes(title) ? [title] : []), ...(legend && scene.includes(legend) ? [legend] : [])]);
+  shiftPastExisting(scene, placed);
+  paintArrows(scene, placed);
+}
+
+function placeCaption(
+  title: SceneNode | undefined,
+  legend: SceneNode | undefined,
+  scene: readonly SceneNode[],
+  diagramRight: number,
+  diagramBottom: number,
+): void {
   if (title && scene.includes(title)) {
-    const fitted = title.type === "text" ? fitText(title.text, diagramRight - 48, 36) : fitBox(title.type, title.text, 280, 64);
+    const fitted = title.type === "text" ? fitText(title.text, Math.max(diagramRight - 48, 280), 36) : fitBox(title.type, title.text, 280, 64);
     title.x = 48;
     title.y = 16;
     title.width = fitted.width;
@@ -147,30 +282,18 @@ function separateSystem(scene: SceneNode[], touched: ReadonlySet<string>): void 
   if (legend && scene.includes(legend)) {
     const fitted = legend.type === "text" ? fitText(legend.text, 280, 36) : fitBox(legend.type, legend.text, 280, 64);
     legend.x = 48;
-    legend.y = top + maxHeight + 40;
+    legend.y = diagramBottom + 40;
     legend.width = fitted.width;
     legend.height = fitted.height;
   }
+}
 
-  const placed = new Set<SceneNode>([...packed.flat(), ...(title ? [title] : []), ...(legend ? [legend] : [])]);
+function shiftPastExisting(scene: readonly SceneNode[], placed: ReadonlySet<SceneNode>): void {
   const untouched = scene.filter((node) => !placed.has(node) && node.type !== "arrow" && node.type !== "line");
-  if (untouched.length > 0) {
-    const shift = Math.max(...untouched.map((node) => node.x + node.width)) + 140 - 48;
-    if (shift > 0) {
-      for (const node of placed) node.x += shift;
-    }
-  }
-
-  for (const arrow of scene) {
-    if (arrow.type !== "arrow") continue;
-    const from = scene.find((node) => node.id === arrow.fromId);
-    const to = scene.find((node) => node.id === arrow.toId);
-    if (!from || !to || (!placed.has(from) && !placed.has(to))) continue;
-    arrow.x = from.x + from.width;
-    arrow.y = from.y + from.height / 2;
-    arrow.width = Math.max(Math.abs(to.x - arrow.x), 48);
-    arrow.height = Math.max(Math.abs(to.y + to.height / 2 - arrow.y), 8);
-  }
+  if (untouched.length === 0) return;
+  const shift = Math.max(...untouched.map((node) => node.x + node.width)) + 140 - 48;
+  if (shift <= 0) return;
+  for (const node of placed) node.x += shift;
 }
 
 function resolveNode(scene: readonly SceneNode[], id: string): SceneNode | undefined {

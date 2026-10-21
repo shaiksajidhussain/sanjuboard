@@ -85,6 +85,59 @@ describe("structured diagram operations", () => {
     expect(result.proposal.scene.some((node) => node.text === "Part 30")).toBe(true);
   });
 
+  it("lays a CI/CD pipeline left to right instead of stacking it like an architecture", () => {
+    const names = [
+      "PostgreSQL Database",
+      "Monitoring and Alerts",
+      "Jenkins CI/CD Server",
+      "GitHub Repository",
+      "Docker Image Builder",
+      "Deployment Approval",
+      "Staging Environment",
+      "Developer",
+    ];
+    const result = validateProposal([], {
+      operations: [
+        ...names.map((text, index) => ({
+          op: "add_shape" as const,
+          id: `step_${index}`,
+          type: "rectangle" as const,
+          x: 40,
+          y: index * 30,
+          width: 80,
+          height: 40,
+          text,
+        })),
+        { op: "add_arrow" as const, id: "fail", fromId: "step_5", toId: "step_0", label: "Reject" },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const find = (text: string) => result.proposal.scene.find((node) => node.text === text);
+    const developer = find("Developer");
+    const github = find("GitHub Repository");
+    const jenkins = find("Jenkins CI/CD Server");
+    const approval = find("Deployment Approval");
+    const database = find("PostgreSQL Database");
+    expect(developer && github && jenkins && approval && database).toBeTruthy();
+    expect(github!.x).toBeGreaterThan(developer!.x + developer!.width);
+    expect(jenkins!.x).toBeGreaterThan(github!.x);
+    expect(approval!.type).toBe("diamond");
+    expect(database!.type).toBe("ellipse");
+    expect(database!.y).toBeGreaterThan(developer!.y + developer!.height);
+    const boxes = result.proposal.scene.filter((node) => node.type !== "arrow");
+    for (let left = 0; left < boxes.length; left += 1) {
+      for (let right = left + 1; right < boxes.length; right += 1) {
+        const a = boxes[left];
+        const b = boxes[right];
+        if (!a || !b) continue;
+        const overlap = a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+        expect(overlap).toBe(false);
+      }
+    }
+    expect(result.proposal.scene.find((node) => node.id === "fail")?.strokeColor).toBe("#e03131");
+  });
+
   it("separates a crowded architecture so boxes and the legend do not overlap", () => {
     const names = [
       "Customer Web App (React)",
@@ -212,6 +265,50 @@ describe("structured diagram operations", () => {
     expect(result.proposal.scene.some((node) => node.type === "arrow" && node.fromId === "web" && node.toId === "api")).toBe(
       true,
     );
+  });
+
+  it("accepts coordinates that arrive as strings", () => {
+    const result = validateProposal([], {
+      operations: [
+        { op: "add_shape", id: "git", type: "rectangle", x: "40", y: "120", width: "200", height: "80", text: "GitHub" },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.scene[0]).toMatchObject({ x: 40, y: 120, text: "GitHub" });
+  });
+
+  it("fills in a missing shape type instead of rejecting the diagram", () => {
+    const result = validateProposal([], {
+      operations: [
+        { op: "add_shape", id: "dev", type: "rectangle", x: 40, y: 40, text: "Developer" },
+        { op: "add_shape", id: "git", x: 300, y: 40, text: "GitHub Repository" },
+        { op: "add_shape", id: "edge", x: 180, y: 70, fromId: "dev", toId: "git" },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.scene.find((node) => node.id === "git")).toMatchObject({ type: "rectangle", text: "GitHub Repository" });
+    expect(result.proposal.scene.some((node) => node.type === "arrow" && node.fromId === "dev" && node.toId === "git")).toBe(
+      true,
+    );
+  });
+
+  it("accepts a line and turns one with two ends into an arrow", () => {
+    const result = validateProposal([], {
+      operations: [
+        { op: "add_shape", id: "web", type: "rectangle", x: 40, y: 40, text: "Web" },
+        { op: "add_shape", id: "api", type: "rectangle", x: 340, y: 40, text: "API" },
+        { op: "add_shape", id: "edge", type: "line", x: 200, y: 70, fromId: "web", toId: "api" },
+        { op: "add_shape", id: "rule", type: "line", x: 40, y: 220, width: 120, height: 4 },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.scene.some((node) => node.type === "arrow" && node.fromId === "web" && node.toId === "api")).toBe(
+      true,
+    );
+    expect(result.proposal.scene.some((node) => node.id === "rule" && node.type === "line")).toBe(true);
   });
 
   it("accepts a triangle and maps circle and square names", () => {

@@ -37,7 +37,7 @@ export const operationSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("add_shape"),
     id: elementIdSchema,
-    type: z.enum(["rectangle", "ellipse", "diamond", "triangle", "text"]),
+    type: z.enum(["rectangle", "ellipse", "diamond", "triangle", "text", "line"]),
     x: z.number().finite().min(-20000).max(20000),
     y: z.number().finite().min(-20000).max(20000),
     width: z.number().finite().positive().max(8000).optional(),
@@ -127,6 +127,13 @@ function elementToken(value: unknown): string | undefined {
   return slug || undefined;
 }
 
+function finiteNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return undefined;
+  const parsed = Number(value.trim().replace(/px$/i, ""));
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function normalizeColor(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const raw = value.trim().toLowerCase();
@@ -146,9 +153,44 @@ export function normalizeModelPayload(payload: unknown): unknown {
   const operations = body.operations.slice(0, 48).map((operation) => {
       if (!operation || typeof operation !== "object") return operation;
       const record = { ...(operation as Record<string, unknown>) };
+      if (record.op === "add_shape" && (typeof record.type !== "string" || !record.type.trim())) {
+        const hinted = record.shape ?? record.shapeType;
+        if (typeof hinted === "string" && hinted.trim()) {
+          record.type = hinted;
+        } else {
+          const from = elementToken(record.fromId ?? record.from ?? record.sourceId ?? record.source);
+          const to = elementToken(record.toId ?? record.to ?? record.targetId ?? record.target);
+          if (from && to) {
+            record.op = "add_arrow";
+            record.fromId = from;
+            record.toId = to;
+            if (typeof record.text === "string" && record.label == null) record.label = record.text;
+          } else {
+            record.type = "rectangle";
+          }
+        }
+      }
       if (record.op === "add_shape" && typeof record.type === "string") {
-        const alias = SHAPE_ALIASES[record.type.trim().toLowerCase()];
-        if (alias) record.type = alias;
+        const rawType = record.type.trim().toLowerCase();
+        if (rawType === "line" || rawType === "connector" || rawType === "edge" || rawType === "arrow") {
+          const from = elementToken(record.fromId ?? record.from ?? record.sourceId ?? record.source);
+          const to = elementToken(record.toId ?? record.to ?? record.targetId ?? record.target);
+          if (from && to) {
+            record.op = "add_arrow";
+            record.fromId = from;
+            record.toId = to;
+            if (typeof record.text === "string" && record.label == null) record.label = record.text;
+            delete record.type;
+            delete record.text;
+            delete record.width;
+            delete record.height;
+          } else {
+            record.type = "line";
+          }
+        } else {
+          const alias = SHAPE_ALIASES[rawType];
+          if (alias) record.type = alias;
+        }
       }
       if (record.op === "connect" || record.op === "arrow") record.op = "add_arrow";
       if (record.op === "add_arrow") {
@@ -166,6 +208,11 @@ export function normalizeModelPayload(payload: unknown): unknown {
         delete record.target;
         delete record.sourceId;
         delete record.targetId;
+      }
+      for (const key of ["x", "y", "width", "height"] as const) {
+        if (!(key in record)) continue;
+        const number = finiteNumber(record[key]);
+        if (number !== undefined) record[key] = number;
       }
       for (const key of ["backgroundColor", "strokeColor"] as const) {
         if (!(key in record)) continue;

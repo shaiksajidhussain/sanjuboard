@@ -95,6 +95,21 @@ describe("templates and OpenAPI", () => {
       expect.arrayContaining(["Billing", "GET /invoices", "POST /invoices"]),
     );
     expect(blueprintForPrompt("Create a web application architecture with a browser and an API.")).toBe("web-app");
+    const pipeline = validateProposal([], {
+      operations: blueprintOperations("cicd", "pipe"),
+    });
+    expect(pipeline.ok).toBe(true);
+    if (pipeline.ok) {
+      const source = pipeline.proposal.scene.find((node) => node.text?.startsWith("Source Control"));
+      const ci = pipeline.proposal.scene.find((node) => node.text?.includes("Jenkins"));
+      const approval = pipeline.proposal.scene.find((node) => node.text === "Approved?");
+      expect(source && ci && approval).toBeTruthy();
+      expect(ci!.x).toBeGreaterThan(source!.x + source!.width);
+      expect(approval!.type).toBe("diamond");
+      expect(pipeline.proposal.scene.some((node) => node.type === "arrow" && node.strokeColor === "#e03131" && node.text === "Fail")).toBe(
+        true,
+      );
+    }
     const architecture = blueprintOperations("web-app", "arch");
     const architectureProposal = validateProposal([], { operations: architecture });
     expect(architectureProposal.ok).toBe(true);

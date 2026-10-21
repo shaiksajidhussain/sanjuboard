@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import {
   assistantSystemPrompt,
   assistantUserPrompt,
+  blueprintForPrompt,
+  blueprintOperations,
   extractJson,
   interpretModelOutput,
   localAssistant,
@@ -57,6 +59,12 @@ export function createApp(options: CreateAppOptions = {}) {
       return;
     }
 
+    const direct = directBlueprint(parsed.data.instruction, parsed.data.scene);
+    if (direct) {
+      res.json({ provider: "blueprint", proposal: publicProposal(direct) });
+      return;
+    }
+
     let raw: unknown;
     try {
       raw = await assistant.propose({
@@ -74,6 +82,11 @@ export function createApp(options: CreateAppOptions = {}) {
 
     const validated = interpretModelOutput(parsed.data.scene, raw);
     if (!validated.ok) {
+      const fallback = directBlueprint(parsed.data.instruction, parsed.data.scene, true);
+      if (fallback) {
+        res.json({ provider: "blueprint", proposal: publicProposal(fallback) });
+        return;
+      }
       res.status(422).json({ error: validated.error });
       return;
     }
@@ -104,6 +117,20 @@ export function createApp(options: CreateAppOptions = {}) {
   }
 
   return app;
+}
+
+function directBlueprint(
+  instruction: string,
+  scene: readonly SceneNode[],
+  afterInvalidModel = false,
+): Proposal | null {
+  const kind = blueprintForPrompt(instruction);
+  const asksForDiagram = /proposal|create|draw|diagram|generate|make|layout|pipeline|architecture|flow/i.test(instruction);
+  const layoutBrief = /proposal for|grouped stages|legend explaining/i.test(instruction);
+  if (!kind || !asksForDiagram) return null;
+  if (!afterInvalidModel && scene.length > 0 && !layoutBrief) return null;
+  const prepared = interpretModelOutput(scene, { operations: blueprintOperations(kind, "board") });
+  return prepared.ok ? prepared.proposal : null;
 }
 
 function publicProposal(proposal: Proposal) {

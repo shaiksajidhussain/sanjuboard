@@ -48,7 +48,7 @@ type FlowItem = {
   backgroundColor?: string;
 };
 
-function flow(stamp: string, items: FlowItem[], links: Array<[number, number, string?]>): DiagramOperation[] {
+function flow(stamp: string, items: FlowItem[], links: Array<[number, number, string?, string?]>): DiagramOperation[] {
   const ids = items.map((item) => stampId(stamp, item.id));
   const operations: DiagramOperation[] = items.map((item, index) => ({
     op: "add_shape",
@@ -62,7 +62,7 @@ function flow(stamp: string, items: FlowItem[], links: Array<[number, number, st
     backgroundColor: item.backgroundColor ?? (item.type === "diamond" ? CHOICE : item.type === "ellipse" ? DATA : CLIENT),
     strokeColor: "#1e1e1e",
   }));
-  links.forEach(([from, to, label], index) => {
+  links.forEach(([from, to, label, stroke], index) => {
     const fromId = ids[from];
     const toId = ids[to];
     if (!fromId || !toId) return;
@@ -72,6 +72,7 @@ function flow(stamp: string, items: FlowItem[], links: Array<[number, number, st
       fromId,
       toId,
       label,
+      strokeColor: stroke ?? "#1e1e1e",
     });
   });
   return operations;
@@ -154,14 +155,44 @@ export function blueprintOperations(id: Blueprint["id"], stamp: string): Diagram
     ], [[0, 1], [1, 2], [1, 3], [1, 4], [3, 5], [2, 6], [4, 6]]);
   }
   if (id === "cicd") {
-    return flow(stamp, [
-      { id: "commit", type: "ellipse", text: "Commit", x: 40, y: 140, backgroundColor: CLIENT },
-      { id: "build", type: "rectangle", text: "Build", x: 260, y: 140, backgroundColor: SERVICE },
-      { id: "test", type: "diamond", text: "Tests pass?", x: 500, y: 110, backgroundColor: CHOICE },
-      { id: "image", type: "rectangle", text: "Image", x: 780, y: 40, backgroundColor: SERVICE },
-      { id: "deploy", type: "rectangle", text: "Deploy", x: 1040, y: 40, backgroundColor: DATA },
-      { id: "fail", type: "rectangle", text: "Notify", x: 780, y: 250, backgroundColor: EXTERNAL },
-    ], [[0, 1], [1, 2], [2, 3, "Yes"], [3, 4], [2, 5, "No"]]);
+    return flow(
+      stamp,
+      [
+        { id: "title", type: "rectangle", text: "CI/CD pipeline diagram", x: 48, y: 24, width: 300, height: 72, backgroundColor: "#f8f9fa" },
+        {
+          id: "legend",
+          type: "rectangle",
+          text: "Legend\nRectangle: stage\nDiamond: decision\nEllipse: data\nRed arrow: failure",
+          x: 400,
+          y: 24,
+          width: 280,
+          height: 150,
+          backgroundColor: "#fff",
+        },
+        { id: "source", type: "rectangle", text: "Source Control\nGitHub", x: 48, y: 220, width: 210, height: 88, backgroundColor: CLIENT },
+        { id: "ci", type: "rectangle", text: "CI\nJenkins", x: 314, y: 220, width: 210, height: 88, backgroundColor: SERVICE },
+        { id: "testing", type: "rectangle", text: "Testing\nTests and quality", x: 580, y: 220, width: 210, height: 88, backgroundColor: CHOICE },
+        { id: "build", type: "rectangle", text: "Build\nDocker image", x: 846, y: 220, width: 210, height: 88, backgroundColor: "#c5f6fa" },
+        { id: "staging", type: "rectangle", text: "Staging", x: 1112, y: 220, width: 210, height: 88, backgroundColor: EXTERNAL },
+        { id: "approval", type: "diamond", text: "Approved?", x: 48, y: 390, width: 180, height: 140, backgroundColor: CHOICE },
+        { id: "production", type: "rectangle", text: "Production\nNginx and API", x: 314, y: 420, width: 210, height: 88, backgroundColor: SERVICE },
+        { id: "database", type: "ellipse", text: "PostgreSQL", x: 846, y: 420, width: 180, height: 88, backgroundColor: DATA },
+        { id: "monitoring", type: "rectangle", text: "Monitoring\nAlerts", x: 1112, y: 420, width: 210, height: 88, backgroundColor: "#ffc9c9" },
+        { id: "notify", type: "rectangle", text: "Stop and notify", x: 580, y: 420, width: 210, height: 88, backgroundColor: "#ffc9c9" },
+      ],
+      [
+        [2, 3, "Push"],
+        [3, 4, "Run"],
+        [4, 5, "Pass"],
+        [5, 6, "Image"],
+        [6, 7, "Deploy"],
+        [7, 8, "Yes"],
+        [8, 9],
+        [8, 10, "Health"],
+        [4, 11, "Fail", "#e03131"],
+        [7, 11, "No", "#e03131"],
+      ],
+    );
   }
   if (id === "er") {
     return flow(stamp, [
