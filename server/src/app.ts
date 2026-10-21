@@ -164,7 +164,7 @@ function openAiAssistant(apiKey: string, model: string): DiagramAssistant {
         body: JSON.stringify({
           model,
           temperature: 0.2,
-          max_completion_tokens: 900,
+          max_completion_tokens: 4000,
           response_format: { type: "json_object" },
           messages: [
             { role: "system", content: assistantSystemPrompt() },

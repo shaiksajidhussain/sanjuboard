@@ -8,6 +8,117 @@ import {
 } from "./schema";
 
 const BINDABLE = new Set(["rectangle", "ellipse", "diamond", "triangle", "text"]);
+const LAYER_COLORS = ["#d0ebff", "#e5dbff", "#fff3bf", "#d3f9d8", "#ffe8cc"];
+
+function fitBox(
+  type: SceneNode["type"],
+  text: string | undefined,
+  width: number,
+  height: number,
+): { width: number; height: number } {
+  const label = text?.trim();
+  if (!label || type === "text" || type === "arrow" || type === "line") return { width, height };
+  const words = label.split(/\s+/);
+  const longest = words.reduce((max, word) => Math.max(max, word.length), 1);
+  const roomy = type === "diamond" || type === "triangle";
+  const widthFit = Math.min(420, Math.max(width, longest * 11 + (roomy ? 72 : 40), roomy ? 180 : 168));
+  const perLine = Math.max(1, Math.floor((widthFit - (roomy ? 64 : 32)) / 11));
+  let lines = 1;
+  let used = 0;
+  for (const word of words) {
+    if (used === 0) used = word.length;
+    else if (used + 1 + word.length <= perLine) used += 1 + word.length;
+    else {
+      lines += 1;
+      used = word.length;
+    }
+  }
+  const heightFit = Math.min(
+    240,
+    Math.max(height, lines * 26 + (roomy ? 56 : 32), roomy ? 128 : 72),
+  );
+  return { width: widthFit, height: heightFit };
+}
+
+function resolveNode(scene: readonly SceneNode[], id: string): SceneNode | undefined {
+  const direct = scene.find((node) => node.id === id);
+  if (direct) return direct;
+  const needle = id.replace(/[_-]+/g, " ").trim().toLowerCase();
+  return scene.find((node) => {
+    const text = (node.text ?? "").trim().toLowerCase();
+    return text === needle || text.replace(/[^a-z0-9]+/g, " ").trim() === needle;
+  });
+}
+
+function linkUnconnected(scene: SceneNode[], operations: readonly DiagramOperation[]): DiagramOperation[] {
+  const added = operations.filter((operation) => operation.op === "add_shape");
+  if (added.length < 3 || added.length > 24 || operations.some((operation) => operation.op === "add_arrow")) {
+    return [];
+  }
+  const shapes = added
+    .map((operation) => scene.find((node) => node.id === operation.id))
+    .filter((node): node is SceneNode => Boolean(node && BINDABLE.has(node.type)));
+  if (shapes.length < 3) return [];
+
+  const columns: SceneNode[][] = [];
+  for (const node of [...shapes].sort((left, right) => left.x - right.x || left.y - right.y)) {
+    const column = columns.find((group) => Math.abs((group[0]?.x ?? node.x) - node.x) < 170);
+    if (column) column.push(node);
+    else columns.push([node]);
+  }
+  for (const column of columns) column.sort((left, right) => left.y - right.y);
+  columns.forEach((column, index) => {
+    if (columns.length < 2) return;
+    for (const node of column) {
+      if (!node.backgroundColor) node.backgroundColor = LAYER_COLORS[index % LAYER_COLORS.length];
+    }
+  });
+
+  const pairs: Array<readonly [SceneNode, SceneNode]> = [];
+  if (columns.length < 2) {
+    const ordered = [...shapes].sort((left, right) => left.y - right.y || left.x - right.x);
+    for (let index = 0; index < ordered.length - 1; index += 1) {
+      const from = ordered[index];
+      const to = ordered[index + 1];
+      if (from && to) pairs.push([from, to]);
+    }
+  } else {
+    for (let index = 0; index < columns.length - 1; index += 1) {
+      const fromColumn = columns[index] ?? [];
+      const toColumn = columns[index + 1] ?? [];
+      const fromLead = fromColumn[0];
+      const toLead = toColumn[0];
+      if (!fromLead || !toLead) continue;
+      if (fromColumn.length === 1) {
+        for (const to of toColumn) pairs.push([fromLead, to]);
+      } else if (toColumn.length === 1) {
+        for (const from of fromColumn) pairs.push([from, toLead]);
+      } else {
+        for (const from of fromColumn) {
+          const to = [...toColumn].sort(
+            (left, right) => Math.abs(left.y - from.y) - Math.abs(right.y - from.y),
+          )[0];
+          if (to) pairs.push([from, to]);
+        }
+      }
+    }
+  }
+
+  const used = new Set(scene.map((node) => node.id));
+  const arrows: DiagramOperation[] = [];
+  for (const [from, to] of pairs) {
+    if (arrows.length >= 24 || from.id === to.id) continue;
+    let id = `link_${from.id}_${to.id}`.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 80);
+    let suffix = 2;
+    while (!id || used.has(id)) {
+      id = `link_${from.id}_${to.id}_${suffix}`.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 80);
+      suffix += 1;
+    }
+    used.add(id);
+    arrows.push({ op: "add_arrow", id, fromId: from.id, toId: to.id, strokeColor: "#1e1e1e" });
+  }
+  return arrows;
+}
 
 function cloneScene(scene: readonly SceneNode[]): SceneNode[] {
   return scene.map((node) => ({ ...node, groupIds: [...node.groupIds] }));
@@ -33,20 +144,27 @@ export function validateProposal(
 
   const working = cloneScene(scene);
   const changes: Change[] = [];
+  const operations = [...parsed.data.operations];
 
   for (const operation of parsed.data.operations) {
     const applied = applyOperation(working, operation);
     if (!applied.ok) return applied;
     changes.push(...applied.changes);
   }
+  for (const operation of linkUnconnected(working, operations)) {
+    const applied = applyOperation(working, operation);
+    if (!applied.ok) continue;
+    operations.push(operation);
+    changes.push(...applied.changes);
+  }
 
   return {
     ok: true,
     proposal: {
-      operations: parsed.data.operations,
+      operations,
       changes,
       scene: working,
-      convertIds: [...conversionClosure(working, seedIds(parsed.data.operations))],
+      convertIds: [...conversionClosure(working, seedIds(operations))],
     },
   };
 }
@@ -68,15 +186,20 @@ function applyOperation(
       if (scene.some((node) => node.id === operation.id)) {
         return { ok: false, error: `Cannot add "${operation.id}" because that id already exists.` };
       }
+      const fitted = fitBox(
+        operation.type,
+        operation.text,
+        operation.width ?? (operation.type === "text" ? 160 : 180),
+        operation.height ??
+          (operation.type === "diamond" || operation.type === "triangle" ? 140 : operation.type === "text" ? 40 : 88),
+      );
       const node: SceneNode = {
         id: operation.id,
         type: operation.type,
         x: operation.x,
         y: operation.y,
-        width: operation.width ?? (operation.type === "text" ? 160 : 180),
-        height:
-          operation.height ??
-          (operation.type === "diamond" || operation.type === "triangle" ? 140 : operation.type === "text" ? 40 : 88),
+        width: fitted.width,
+        height: fitted.height,
         text: operation.text,
         backgroundColor: operation.backgroundColor,
         strokeColor: operation.strokeColor,
@@ -134,8 +257,8 @@ function applyOperation(
       if (scene.some((node) => node.id === operation.id)) {
         return { ok: false, error: `Cannot add arrow "${operation.id}" because that id already exists.` };
       }
-      const from = scene.find((node) => node.id === operation.fromId);
-      const to = scene.find((node) => node.id === operation.toId);
+      const from = resolveNode(scene, operation.fromId);
+      const to = resolveNode(scene, operation.toId);
       if (!from || !to) {
         return {
           ok: false,

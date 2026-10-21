@@ -69,6 +69,70 @@ describe("structured diagram operations", () => {
     expect(result.proposal.convertIds).toContain("db");
   });
 
+  it("accepts a diagram with more than 24 shapes and keeps the first 48", () => {
+    const operations = Array.from({ length: 60 }, (_, index) => ({
+      op: "add_shape" as const,
+      id: `node_${index}`,
+      type: "rectangle" as const,
+      x: (index % 8) * 200,
+      y: Math.floor(index / 8) * 120,
+      text: `Part ${index}`,
+    }));
+    const result = validateProposal([], { operations });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.operations).toHaveLength(48);
+    expect(result.proposal.scene.some((node) => node.text === "Part 30")).toBe(true);
+  });
+
+  it("connects an unlinked system and keeps the full label", () => {
+    const result = validateProposal([], {
+      operations: [
+        { op: "add_shape", id: "web", type: "rectangle", x: 40, y: 40, width: 80, height: 40, text: "Patient Web App" },
+        { op: "add_shape", id: "doctor", type: "rectangle", x: 48, y: 180, width: 80, height: 40, text: "Doctor Portal" },
+        { op: "add_shape", id: "gateway", type: "rectangle", x: 340, y: 100, width: 80, height: 40, text: "API Gateway" },
+        {
+          op: "add_shape",
+          id: "auth",
+          type: "rectangle",
+          x: 640,
+          y: 40,
+          width: 90,
+          height: 40,
+          text: "Authentication Service",
+        },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const web = result.proposal.scene.find((node) => node.id === "web");
+    expect(web?.width).toBeGreaterThanOrEqual(168);
+    expect(web?.height).toBeGreaterThanOrEqual(72);
+    expect(web?.text).toBe("Patient Web App");
+    expect(web?.backgroundColor).toBe("#d0ebff");
+    expect(
+      result.proposal.scene.some((node) => node.type === "arrow" && node.fromId === "web" && node.toId === "gateway"),
+    ).toBe(true);
+    expect(
+      result.proposal.scene.some((node) => node.type === "arrow" && node.fromId === "gateway" && node.toId === "auth"),
+    ).toBe(true);
+  });
+
+  it("resolves an arrow that names the label instead of the id", () => {
+    const result = validateProposal([], {
+      operations: [
+        { op: "add_shape", id: "web", type: "rectangle", x: 40, y: 40, text: "Patient Web App" },
+        { op: "add_shape", id: "api", type: "rectangle", x: 360, y: 40, text: "API Gateway" },
+        { op: "add_arrow", id: "edge", from: "Patient Web App", to: "API Gateway" },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.scene.some((node) => node.type === "arrow" && node.fromId === "web" && node.toId === "api")).toBe(
+      true,
+    );
+  });
+
   it("accepts a triangle and maps circle and square names", () => {
     const result = validateProposal([], {
       operations: [
@@ -246,5 +310,12 @@ describe("assistant transport", () => {
 
   it("reads a fenced model payload", () => {
     expect(extractJson('```json\n{"operations":[]}\n```')).toEqual({ operations: [] });
+  });
+
+  it("keeps finished shapes when the model JSON is cut off", () => {
+    const parsed = extractJson(
+      '{"operations":[{"op":"add_shape","id":"api","type":"rectangle","x":40,"y":40,"text":"API"},{"op":"add_shape","id":"db"',
+    ) as { operations: Array<{ id: string }> };
+    expect(parsed.operations.map((operation) => operation.id)).toEqual(["api"]);
   });
 });

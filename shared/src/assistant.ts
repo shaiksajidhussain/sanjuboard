@@ -8,16 +8,72 @@ export type AssistantResult =
 export function extractJson(text: string): unknown {
   const trimmed = text.trim();
   if (!trimmed) throw new Error("The model returned an empty response.");
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    if (fenced?.[1]) return JSON.parse(fenced[1]);
-    const start = trimmed.indexOf("{");
-    const end = trimmed.lastIndexOf("}");
-    if (start >= 0 && end > start) return JSON.parse(trimmed.slice(start, end + 1));
-    throw new Error("The model response was not JSON.");
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim();
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  const sliced = start >= 0 && end > start ? trimmed.slice(start, end + 1) : "";
+  for (const candidate of [trimmed, fenced, sliced]) {
+    const parsed = parseModelJson(candidate);
+    if (parsed !== undefined) return parsed;
   }
+  const salvaged = salvageOperations(fenced || trimmed);
+  if (salvaged) return salvaged;
+  throw new Error("The model response was not JSON.");
+}
+
+function parseModelJson(value: string | undefined): unknown {
+  if (!value) return undefined;
+  try {
+    return JSON.parse(value);
+  } catch {
+    try {
+      return JSON.parse(value.replace(/,\s*([}\]])/g, "$1"));
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+function salvageOperations(text: string): { operations: unknown[] } | null {
+  const marker = text.indexOf('"operations"');
+  const start = text.indexOf("[", marker === -1 ? 0 : marker);
+  if (start < 0) return null;
+  const operations: unknown[] = [];
+  let index = start + 1;
+  while (index < text.length) {
+    while (index < text.length && /[\s,]/.test(text[index] ?? "")) index += 1;
+    if (index >= text.length || text[index] === "]") break;
+    if (text[index] !== "{") break;
+    const end = matchingBrace(text, index);
+    if (end < 0) break;
+    const parsed = parseModelJson(text.slice(index, end + 1));
+    if (!parsed || typeof parsed !== "object") break;
+    operations.push(parsed);
+    index = end + 1;
+  }
+  return operations.length > 0 ? { operations } : null;
+}
+
+function matchingBrace(text: string, open: number): number {
+  let depth = 0;
+  let quote = false;
+  let escaped = false;
+  for (let index = open; index < text.length; index += 1) {
+    const char = text[index];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') quote = false;
+      continue;
+    }
+    if (char === '"') quote = true;
+    else if (char === "{") depth += 1;
+    else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
 }
 
 export function assistantSystemPrompt(): string {
@@ -36,11 +92,16 @@ export function assistantSystemPrompt(): string {
     "- Ids are 1-80 characters and use only letters, numbers, underscores, and hyphens.",
     "- New ids must not collide with existing ids.",
     "- Arrows must reference ids that exist now or that you add earlier in the array.",
+    "- A system diagram is incomplete without arrows. Add one add_arrow for every relationship, after the shapes it connects. fromId and toId are shape ids.",
+    "- Lay systems out left to right: clients, gateway, services, then data and external systems.",
+    "- Give each box a backgroundColor: #d0ebff clients, #e5dbff services, #fff3bf decisions, #d3f9d8 data, #ffe8cc external systems. Stroke is #1e1e1e.",
+    "- Write the full label. Use width 220 and height 84 or larger so words are not cut off.",
     "- Do not delete or restyle elements the user did not mention.",
     "- For explanations and Mermaid, return a comment and do not edit the canvas.",
     "- Shape type must be rectangle, ellipse, diamond, triangle, or text. Draw circles as ellipse and squares as rectangle.",
     "- Colors are #RRGGBB. Coordinates are finite numbers.",
-    "- At most 24 operations.",
+    "- At most 40 operations.",
+    "- Return compact JSON. Do not put a comma after the last item.",
     "- Never return code, shell commands, HTML, or Markdown outside the JSON object.",
   ].join("\n");
 }

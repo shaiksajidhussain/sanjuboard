@@ -115,6 +115,18 @@ const NAMED_COLORS: Record<string, string | null> = {
   grey: "#868e96",
 };
 
+function elementToken(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (/^[A-Za-z0-9_-]{1,80}$/.test(trimmed)) return trimmed;
+  const slug = trimmed
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+  return slug || undefined;
+}
+
 function normalizeColor(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const raw = value.trim().toLowerCase();
@@ -131,14 +143,29 @@ export function normalizeModelPayload(payload: unknown): unknown {
     return payload;
   }
   const body = payload as { operations: unknown[] };
-  return {
-    ...body,
-    operations: body.operations.map((operation) => {
+  const operations = body.operations.slice(0, 48).map((operation) => {
       if (!operation || typeof operation !== "object") return operation;
       const record = { ...(operation as Record<string, unknown>) };
       if (record.op === "add_shape" && typeof record.type === "string") {
         const alias = SHAPE_ALIASES[record.type.trim().toLowerCase()];
         if (alias) record.type = alias;
+      }
+      if (record.op === "connect" || record.op === "arrow") record.op = "add_arrow";
+      if (record.op === "add_arrow") {
+        const id = elementToken(record.id);
+        if (id) record.id = id;
+      }
+      if (record.op === "add_arrow") {
+        const from = elementToken(record.fromId ?? record.from ?? record.sourceId ?? record.source);
+        const to = elementToken(record.toId ?? record.to ?? record.targetId ?? record.target);
+        if (from) record.fromId = from;
+        if (to) record.toId = to;
+        delete record.from;
+        delete record.to;
+        delete record.source;
+        delete record.target;
+        delete record.sourceId;
+        delete record.targetId;
       }
       for (const key of ["backgroundColor", "strokeColor"] as const) {
         if (!(key in record)) continue;
@@ -147,12 +174,12 @@ export function normalizeModelPayload(payload: unknown): unknown {
         else delete record[key];
       }
       return record;
-    }),
-  };
+    });
+  return { ...body, operations };
 }
 
 export const modelResponseSchema = z.object({
-  operations: z.array(operationSchema).max(24),
+  operations: z.array(operationSchema).max(48),
 });
 
 export const proposeRequestSchema = z.object({

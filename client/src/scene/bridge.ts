@@ -28,8 +28,10 @@ export function nodeToSkeleton(node: SceneNode, scene: ReadonlyMap<string, Scene
           [endX - startX, endY - startY],
         ],
         strokeColor: node.strokeColor ?? "#1e1e1e",
+        roughness: 0,
+        strokeWidth: 2,
         groupIds,
-        label: node.text ? { text: node.text } : undefined,
+        label: node.text ? { text: node.text, fontSize: 20, fontFamily: 2 } : undefined,
         customData: { fromId: from.id, toId: to.id },
       };
     }
@@ -39,8 +41,10 @@ export function nodeToSkeleton(node: SceneNode, scene: ReadonlyMap<string, Scene
       x: node.x,
       y: node.y,
       strokeColor: node.strokeColor ?? "#1e1e1e",
+      roughness: 0,
+      strokeWidth: 2,
       groupIds,
-      label: node.text ? { text: node.text } : undefined,
+      label: node.text ? { text: node.text, fontSize: 20, fontFamily: 2 } : undefined,
       start: node.fromId ? { id: node.fromId } : undefined,
       end: node.toId ? { id: node.toId } : undefined,
     };
@@ -63,8 +67,10 @@ export function nodeToSkeleton(node: SceneNode, scene: ReadonlyMap<string, Scene
       ],
       strokeColor: node.strokeColor ?? "#1e1e1e",
       backgroundColor: node.backgroundColor ?? "transparent",
+      roughness: 0,
+      strokeWidth: 2,
       groupIds,
-      label: node.text ? { text: node.text } : undefined,
+      label: node.text ? { text: node.text, fontSize: 20, fontFamily: 2 } : undefined,
       customData: { sanjuShape: "triangle" as const },
     };
   }
@@ -98,10 +104,13 @@ export function nodeToSkeleton(node: SceneNode, scene: ReadonlyMap<string, Scene
     y: node.y,
     width: node.width,
     height: node.height,
-    backgroundColor: node.backgroundColor,
+    backgroundColor: node.backgroundColor ?? "#fff",
     strokeColor: node.strokeColor ?? "#1e1e1e",
+    roughness: 0,
+    strokeWidth: 2,
+    roundness: { type: 3 as const },
     groupIds,
-    label: node.text ? { text: node.text } : undefined,
+    label: node.text ? { text: node.text, fontSize: 20, fontFamily: 2 } : undefined,
   };
 }
 

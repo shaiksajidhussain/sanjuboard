@@ -43,6 +43,12 @@ type SaveState = "Saved" | "Saving…" | "Not saved yet" | "Could not save";
 
 const initialProject = loadProject();
 
+const PROFILE_LINKS = [
+  { label: "LinkedIn", href: "https://www.linkedin.com/in/shaiksajidhussain" },
+  { label: "GitHub", href: "https://github.com/shaiksajidhussain" },
+  { label: "Portfolio", href: "https://sanjusazid1.vercel.app/" },
+] as const;
+
 export default function App() {
   const apiRef = useRef<EditorApi | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
@@ -300,13 +306,20 @@ export default function App() {
       <header className="topbar">
         <div className="brand">
           <span className="mark" aria-hidden="true">
-            S
+            C
           </span>
           <div>
-            <div className="wordmark">Sanju</div>
-            <div className="brand-sub">Board</div>
+            <div className="wordmark">The Canvas Board</div>
+            <div className="brand-credit">by Sajid</div>
           </div>
         </div>
+        <nav className="profile-links" aria-label="Shaik Sajid Hussain">
+          {PROFILE_LINKS.map((link) => (
+            <a key={link.href} href={link.href} target="_blank" rel="noreferrer">
+              {link.label}
+            </a>
+          ))}
+        </nav>
         <div className="actions">
           <span className="save" data-testid="save-state">
             {saveState}
