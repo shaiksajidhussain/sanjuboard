@@ -10,6 +10,20 @@ import {
 const BINDABLE = new Set(["rectangle", "ellipse", "diamond", "triangle", "text"]);
 const LAYER_COLORS = ["#d0ebff", "#e5dbff", "#fff3bf", "#d3f9d8", "#ffe8cc"];
 
+function cleanLabel(text: string | undefined): string | undefined {
+  if (text == null) return text;
+  return text.replace(/\\n/g, "\n").replace(/\\t/g, " ").trim();
+}
+
+function fitText(text: string | undefined, width: number, height: number): { width: number; height: number } {
+  const lines = (text ?? "").split("\n").filter((line) => line.length > 0);
+  const longest = lines.reduce((max, line) => Math.max(max, line.length), 1);
+  return {
+    width: Math.min(760, Math.max(width, longest * 10 + 20, 160)),
+    height: Math.min(420, Math.max(height, Math.max(lines.length, 1) * 26 + 8)),
+  };
+}
+
 function fitBox(
   type: SceneNode["type"],
   text: string | undefined,
@@ -17,27 +31,146 @@ function fitBox(
   height: number,
 ): { width: number; height: number } {
   const label = text?.trim();
-  if (!label || type === "text" || type === "arrow" || type === "line") return { width, height };
-  const words = label.split(/\s+/);
-  const longest = words.reduce((max, word) => Math.max(max, word.length), 1);
+  if (!label || type === "arrow" || type === "line") return { width, height };
+  if (type === "text") return fitText(label, width, height);
   const roomy = type === "diamond" || type === "triangle";
-  const widthFit = Math.min(420, Math.max(width, longest * 11 + (roomy ? 72 : 40), roomy ? 180 : 168));
+  const needed = Math.min(420, Math.max(longestWord(label) * 11 + (roomy ? 72 : 40), roomy ? 180 : 200));
+  const widthFit = width >= needed && width <= needed + 80 ? width : needed;
   const perLine = Math.max(1, Math.floor((widthFit - (roomy ? 64 : 32)) / 11));
-  let lines = 1;
-  let used = 0;
-  for (const word of words) {
-    if (used === 0) used = word.length;
-    else if (used + 1 + word.length <= perLine) used += 1 + word.length;
-    else {
+  let lines = 0;
+  for (const paragraph of label.split("\n")) {
+    const words = paragraph.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) {
       lines += 1;
-      used = word.length;
+      continue;
+    }
+    let used = 0;
+    lines += 1;
+    for (const word of words) {
+      if (used === 0) used = word.length;
+      else if (used + 1 + word.length <= perLine) used += 1 + word.length;
+      else {
+        lines += 1;
+        used = word.length;
+      }
     }
   }
-  const heightFit = Math.min(
-    240,
-    Math.max(height, lines * 26 + (roomy ? 56 : 32), roomy ? 128 : 72),
-  );
+  const heightFit = Math.min(280, Math.max(lines * 26 + (roomy ? 56 : 28), roomy ? 128 : 76));
   return { width: widthFit, height: heightFit };
+}
+
+function longestWord(label: string): number {
+  return label
+    .split(/\s+/)
+    .reduce((max, word) => Math.max(max, word.replace(/\\n/g, "").length), 1);
+}
+
+type DiagramLane = "title" | "legend" | "client" | "gateway" | "service" | "data" | "external" | "monitor" | "other";
+
+function laneOf(text: string): DiagramLane {
+  const label = text.toLowerCase();
+  if (label.startsWith("legend")) return "legend";
+  if (/\b(diagram|architecture)\b/.test(label) && !/\b(service|database|cache|gateway)\b/.test(label)) return "title";
+  if (/monitor/.test(label)) return "monitor";
+  if (/postgres|redis|\bdatabase\b|\bcache\b|\bsql\b/.test(label)) return "data";
+  if (/shipping|provider|\bexternal\b|payment gateway/.test(label)) return "external";
+  if (/\bgateway\b/.test(label)) return "gateway";
+  if (/\b(service|catalog|cart|order|inventory|payment|notification|auth)/.test(label)) return "service";
+  if (/customer|admin|dashboard|web app|browser|\bclient\b/.test(label)) return "client";
+  return "other";
+}
+
+/** Put a newly generated system into columns so fitted labels cannot sit on top of each other. */
+function separateSystem(scene: SceneNode[], touched: ReadonlySet<string>): void {
+  const fresh = scene.filter(
+    (node) => touched.has(node.id) && node.type !== "arrow" && node.type !== "line",
+  );
+  const labeled = fresh.filter((node) => (node.text ?? "").trim() && laneOf(node.text ?? "") !== "title" && laneOf(node.text ?? "") !== "legend");
+  if (labeled.length < 6) return;
+
+  const connected = new Set<string>();
+  for (const node of scene) {
+    if (node.fromId) connected.add(node.fromId);
+    if (node.toId) connected.add(node.toId);
+  }
+  for (let index = scene.length - 1; index >= 0; index -= 1) {
+    const node = scene[index];
+    if (!node || !touched.has(node.id) || node.type === "arrow" || node.type === "line") continue;
+    if ((node.text ?? "").trim() || connected.has(node.id)) continue;
+    scene.splice(index, 1);
+  }
+
+  const title = fresh.find((node) => laneOf(node.text ?? "") === "title" && scene.includes(node));
+  const legend = fresh.find((node) => laneOf(node.text ?? "") === "legend" && scene.includes(node));
+  const columns: SceneNode[][] = [[], [], [], [], []];
+  const order = ["client", "gateway", "service", "data", "external"] as const;
+  for (const node of labeled) {
+    if (!scene.includes(node)) continue;
+    const fitted = node.type === "text" ? fitText(node.text, 200, 32) : fitBox(node.type, node.text, 200, 76);
+    node.width = fitted.width;
+    node.height = fitted.height;
+    const lane = laneOf(node.text ?? "");
+    const column = lane === "monitor" ? "gateway" : lane === "other" ? "service" : lane;
+    const index = order.indexOf(column as (typeof order)[number]);
+    (index >= 0 ? columns[index] : columns[2])?.push(node);
+  }
+  for (const column of columns) column.sort((left, right) => left.y - right.y || left.x - right.x);
+  const packed = columns.filter((column) => column.length > 0);
+  const gapX = 88;
+  const gapY = 32;
+  const top = 88;
+  const heights = packed.map(
+    (column) => column.reduce((sum, node) => sum + node.height, 0) + gapY * Math.max(column.length - 1, 0),
+  );
+  const maxHeight = Math.max(...heights, 0);
+  let x = 48;
+  let diagramRight = 48;
+  packed.forEach((column, index) => {
+    const columnWidth = Math.max(...column.map((node) => node.width));
+    let y = top + (maxHeight - (heights[index] ?? 0)) / 2;
+    for (const node of column) {
+      node.x = x + (columnWidth - node.width) / 2;
+      node.y = y;
+      y += node.height + gapY;
+    }
+    x += columnWidth + gapX;
+    diagramRight = x - gapX;
+  });
+
+  if (title && scene.includes(title)) {
+    const fitted = title.type === "text" ? fitText(title.text, diagramRight - 48, 36) : fitBox(title.type, title.text, 280, 64);
+    title.x = 48;
+    title.y = 16;
+    title.width = fitted.width;
+    title.height = fitted.height;
+  }
+  if (legend && scene.includes(legend)) {
+    const fitted = legend.type === "text" ? fitText(legend.text, 280, 36) : fitBox(legend.type, legend.text, 280, 64);
+    legend.x = 48;
+    legend.y = top + maxHeight + 40;
+    legend.width = fitted.width;
+    legend.height = fitted.height;
+  }
+
+  const placed = new Set<SceneNode>([...packed.flat(), ...(title ? [title] : []), ...(legend ? [legend] : [])]);
+  const untouched = scene.filter((node) => !placed.has(node) && node.type !== "arrow" && node.type !== "line");
+  if (untouched.length > 0) {
+    const shift = Math.max(...untouched.map((node) => node.x + node.width)) + 140 - 48;
+    if (shift > 0) {
+      for (const node of placed) node.x += shift;
+    }
+  }
+
+  for (const arrow of scene) {
+    if (arrow.type !== "arrow") continue;
+    const from = scene.find((node) => node.id === arrow.fromId);
+    const to = scene.find((node) => node.id === arrow.toId);
+    if (!from || !to || (!placed.has(from) && !placed.has(to))) continue;
+    arrow.x = from.x + from.width;
+    arrow.y = from.y + from.height / 2;
+    arrow.width = Math.max(Math.abs(to.x - arrow.x), 48);
+    arrow.height = Math.max(Math.abs(to.y + to.height / 2 - arrow.y), 8);
+  }
 }
 
 function resolveNode(scene: readonly SceneNode[], id: string): SceneNode | undefined {
@@ -157,6 +290,13 @@ export function validateProposal(
     operations.push(operation);
     changes.push(...applied.changes);
   }
+  const touched = new Set<string>();
+  for (const operation of operations) {
+    if (operation.op === "add_shape" || operation.op === "move_shape" || operation.op === "update_shape") {
+      touched.add(operation.id);
+    }
+  }
+  separateSystem(working, touched);
 
   return {
     ok: true,
@@ -186,9 +326,10 @@ function applyOperation(
       if (scene.some((node) => node.id === operation.id)) {
         return { ok: false, error: `Cannot add "${operation.id}" because that id already exists.` };
       }
+      const text = cleanLabel(operation.text);
       const fitted = fitBox(
         operation.type,
-        operation.text,
+        text,
         operation.width ?? (operation.type === "text" ? 160 : 180),
         operation.height ??
           (operation.type === "diamond" || operation.type === "triangle" ? 140 : operation.type === "text" ? 40 : 88),
@@ -200,7 +341,7 @@ function applyOperation(
         y: operation.y,
         width: fitted.width,
         height: fitted.height,
-        text: operation.text,
+        text,
         backgroundColor: operation.backgroundColor,
         strokeColor: operation.strokeColor,
         groupIds: [],

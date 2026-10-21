@@ -85,6 +85,87 @@ describe("structured diagram operations", () => {
     expect(result.proposal.scene.some((node) => node.text === "Part 30")).toBe(true);
   });
 
+  it("separates a crowded architecture so boxes and the legend do not overlap", () => {
+    const names = [
+      "Customer Web App (React)",
+      "Admin Dashboard (React)",
+      "API Gateway (Node.js/Express)",
+      "Authentication Service (JWT)",
+      "Product Catalog Service",
+      "Order Management Service",
+      "PostgreSQL Database",
+      "Redis Cache",
+      "External Payment Gateway",
+      "Monitoring System",
+    ];
+    const operations = [
+      { op: "add_shape" as const, id: "swatch", type: "rectangle" as const, x: 20, y: 20, width: 80, height: 80 },
+      {
+        op: "add_shape" as const,
+        id: "title",
+        type: "text" as const,
+        x: 40,
+        y: 0,
+        width: 80,
+        height: 20,
+        text: "E-Commerce Platform Architecture Diagram",
+      },
+      {
+        op: "add_shape" as const,
+        id: "legend",
+        type: "text" as const,
+        x: 400,
+        y: 0,
+        width: 80,
+        height: 20,
+        text: "Legend:\\n- Client Applications: #d0ebff\\n- Backend Services: #e5dbff",
+      },
+      ...names.map((text, index) => ({
+        op: "add_shape" as const,
+        id: `part_${index}`,
+        type: "rectangle" as const,
+        x: 80,
+        y: 40 + index * 36,
+        width: 90,
+        height: 40,
+        text,
+      })),
+      { op: "add_arrow" as const, id: "to_gateway", fromId: "part_0", toId: "part_2" },
+      { op: "add_arrow" as const, id: "to_catalog", fromId: "part_2", toId: "part_4" },
+      { op: "add_arrow" as const, id: "to_db", fromId: "part_4", toId: "part_6" },
+    ];
+    const result = validateProposal([], { operations });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const boxes = result.proposal.scene.filter((node) => node.type !== "arrow" && node.type !== "text");
+    expect(result.proposal.scene.some((node) => node.id === "swatch")).toBe(false);
+    expect(result.proposal.scene.find((node) => node.id === "legend")?.text).toBe(
+      "Legend:\n- Client Applications: #d0ebff\n- Backend Services: #e5dbff",
+    );
+    for (let left = 0; left < boxes.length; left += 1) {
+      for (let right = left + 1; right < boxes.length; right += 1) {
+        const a = boxes[left];
+        const b = boxes[right];
+        if (!a || !b) continue;
+        const overlap =
+          a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+        expect(overlap).toBe(false);
+      }
+    }
+    const find = (text: string) => result.proposal.scene.find((node) => node.text === text);
+    const customer = find("Customer Web App (React)");
+    const gateway = find("API Gateway (Node.js/Express)");
+    const catalog = find("Product Catalog Service");
+    const database = find("PostgreSQL Database");
+    const external = find("External Payment Gateway");
+    expect(customer && gateway && catalog && database && external).toBeTruthy();
+    expect(gateway!.x).toBeGreaterThan(customer!.x + customer!.width);
+    expect(catalog!.x).toBeGreaterThan(gateway!.x + gateway!.width);
+    expect(database!.x).toBeGreaterThan(catalog!.x + catalog!.width);
+    expect(external!.x).toBeGreaterThan(database!.x);
+    expect(find("E-Commerce Platform Architecture Diagram")!.y).toBeLessThan(customer!.y);
+  });
+
   it("connects an unlinked system and keeps the full label", () => {
     const result = validateProposal([], {
       operations: [

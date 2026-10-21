@@ -78,7 +78,7 @@ function matchingBrace(text: string, open: number): number {
 
 export function assistantSystemPrompt(): string {
   return [
-    "You edit engineering diagrams for Sanju.",
+    "You edit engineering diagrams for The Canvas Board.",
     "Return one JSON object and nothing else: {\"operations\": [...]}",
     "Allowed operations:",
     "- add_shape { op, id, type: rectangle|ellipse|diamond|triangle|text, x, y, width?, height?, text?, backgroundColor?, strokeColor? }",
@@ -93,9 +93,11 @@ export function assistantSystemPrompt(): string {
     "- New ids must not collide with existing ids.",
     "- Arrows must reference ids that exist now or that you add earlier in the array.",
     "- A system diagram is incomplete without arrows. Add one add_arrow for every relationship, after the shapes it connects. fromId and toId are shape ids.",
-    "- Lay systems out left to right: clients, gateway, services, then data and external systems.",
+    "- Lay systems out left to right in separate columns: clients, gateway, services, data, then external systems. Stack each column vertically.",
+    "- Keep at least 40 pixels between every box. Never place two boxes on the same spot.",
+    "- Do not create empty shapes, color swatches, or boxes behind other boxes.",
     "- Give each box a backgroundColor: #d0ebff clients, #e5dbff services, #fff3bf decisions, #d3f9d8 data, #ffe8cc external systems. Stroke is #1e1e1e.",
-    "- Write the full label. Use width 220 and height 84 or larger so words are not cut off.",
+    "- Write the full label. A title is one text shape. A legend is one text shape. Use a real line break between legend lines, not the characters backslash and n.",
     "- Do not delete or restyle elements the user did not mention.",
     "- For explanations and Mermaid, return a comment and do not edit the canvas.",
     "- Shape type must be rectangle, ellipse, diamond, triangle, or text. Draw circles as ellipse and squares as rectangle.",
